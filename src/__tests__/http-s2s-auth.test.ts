@@ -9,7 +9,7 @@
  */
 
 import { createHmac } from 'node:crypto';
-import type { Server } from 'node:http';
+import { request as httpRequest, type Server } from 'node:http';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { jsonRpcSuccessResponse } from './test-helpers.js';
 import { startHttpTransport } from '../http.js';
@@ -105,6 +105,47 @@ async function listenPort(server: Server): Promise<number> {
     throw new Error('expected the HTTP server to bind a TCP port');
   }
   return address.port;
+}
+
+interface HttpResult {
+  status: number;
+  body: string;
+}
+
+function sendHttp(options: {
+  port: number;
+  method: string;
+  path: string;
+  headers?: Record<string, string>;
+  body?: string;
+}): Promise<HttpResult> {
+  return new Promise((resolve, reject) => {
+    const req = httpRequest(
+      {
+        hostname: '127.0.0.1',
+        port: options.port,
+        method: options.method,
+        path: options.path,
+        headers: options.headers,
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (chunk: Buffer) => chunks.push(chunk));
+        res.on('end', () => {
+          resolve({
+            status: res.statusCode ?? 0,
+            body: Buffer.concat(chunks).toString('utf8'),
+          });
+        });
+      },
+    );
+    req.setTimeout(5000, () => {
+      req.destroy(new Error(`timeout ${options.method} ${options.path}`));
+    });
+    req.on('error', reject);
+    if (options.body !== undefined) req.write(options.body);
+    req.end();
+  });
 }
 
 beforeEach(() => {
@@ -271,18 +312,22 @@ describe('HTTP /mcp authentication', () => {
     servers.push(server);
     const port = await listenPort(server);
 
-    const missing = await fetch(`http://127.0.0.1:${port}/mcp`, {
+    const missing = await sendHttp({
+      port,
       method: 'POST',
+      path: '/mcp',
       headers: mcpHeaders({
         'x-bitdefender-api-key': HEADER_API_KEY,
         'x-bitdefender-access-url': HEADER_ACCESS_URL,
       }),
       body: JSON.stringify(listEndpointsCall),
     });
-    const missingBody = await missing.json();
+    const missingBody = JSON.parse(missing.body) as { error?: string };
 
-    const invalid = await fetch(`http://127.0.0.1:${port}/mcp`, {
+    const invalid = await sendHttp({
+      port,
       method: 'POST',
+      path: '/mcp',
       headers: mcpHeaders({
         'x-gateway-s2s': mintS2sHeader('wrong-secret'),
         'x-bitdefender-api-key': HEADER_API_KEY,
@@ -290,15 +335,15 @@ describe('HTTP /mcp authentication', () => {
       }),
       body: JSON.stringify(listEndpointsCall),
     });
-    const invalidBody = await invalid.json();
+    const invalidBody = JSON.parse(invalid.body) as { error?: string };
 
     expect(missing.status).toBe(401);
     expect(invalid.status).toBe(401);
     expect(missingBody.error).toContain('X-Gateway-S2S');
     expect(invalidBody.error).toContain('X-Gateway-S2S');
-    expect(JSON.stringify(missingBody)).not.toContain(ENV_API_KEY);
-    expect(JSON.stringify(missingBody)).not.toContain(S2S_SECRET);
-    expect(JSON.stringify(invalidBody)).not.toContain(HEADER_API_KEY);
+    expect(missing.body).not.toContain(ENV_API_KEY);
+    expect(missing.body).not.toContain(S2S_SECRET);
+    expect(invalid.body).not.toContain(HEADER_API_KEY);
     assertNoSecrets(errors.join('\n'));
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -311,24 +356,28 @@ describe('HTTP /mcp authentication', () => {
     servers.push(server);
     const port = await listenPort(server);
 
-    const response = await fetch(`http://127.0.0.1:${port}/mcp`, {
+    const response = await sendHttp({
+      port,
       method: 'POST',
+      path: '/mcp',
       headers: mcpHeaders({ 'x-gateway-s2s': mintS2sHeader(S2S_SECRET) }),
       body: JSON.stringify(listEndpointsCall),
     });
-    const body = await response.json();
+    const body = JSON.parse(response.body) as { error?: string };
 
     expect(response.status).toBe(401);
     expect(body.error).toContain('missing required gateway credential headers');
     expect(body.error).toContain('X-Bitdefender-Api-Key');
     expect(body.error).toContain('X-Bitdefender-Access-Url');
-    expect(JSON.stringify(body)).not.toContain(ENV_API_KEY);
-    expect(JSON.stringify(body)).not.toContain(ENV_ACCESS_URL);
-    expect(JSON.stringify(body)).not.toContain(S2S_SECRET);
+    expect(response.body).not.toContain(ENV_API_KEY);
+    expect(response.body).not.toContain(ENV_ACCESS_URL);
+    expect(response.body).not.toContain(S2S_SECRET);
     expect(fetchMock).not.toHaveBeenCalled();
 
-    const partial = await fetch(`http://127.0.0.1:${port}/mcp`, {
+    const partial = await sendHttp({
+      port,
       method: 'POST',
+      path: '/mcp',
       headers: mcpHeaders({
         'x-gateway-s2s': mintS2sHeader(S2S_SECRET),
         'x-bitdefender-api-key': HEADER_API_KEY,
@@ -349,8 +398,10 @@ describe('HTTP /mcp authentication', () => {
     servers.push(server);
     const port = await listenPort(server);
 
-    const response = await fetch(`http://127.0.0.1:${port}/mcp`, {
+    const response = await sendHttp({
+      port,
       method: 'POST',
+      path: '/mcp',
       headers: mcpHeaders({
         'x-gateway-s2s': mintS2sHeader(S2S_SECRET),
         'x-bitdefender-api-key': HEADER_API_KEY,
@@ -358,12 +409,11 @@ describe('HTTP /mcp authentication', () => {
       }),
       body: JSON.stringify(listEndpointsCall),
     });
-    const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(JSON.stringify(body)).not.toContain(ENV_API_KEY);
-    expect(JSON.stringify(body)).not.toContain(ENV_ACCESS_URL);
-    expect(JSON.stringify(body)).not.toContain(S2S_SECRET);
+    expect(response.body).not.toContain(ENV_API_KEY);
+    expect(response.body).not.toContain(ENV_ACCESS_URL);
+    expect(response.body).not.toContain(S2S_SECRET);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe(`${HEADER_ACCESS_URL}/v1.0/jsonrpc/network`);
@@ -381,8 +431,8 @@ describe('HTTP /mcp authentication', () => {
     servers.push(server);
     const port = await listenPort(server);
 
-    const response = await fetch(`http://127.0.0.1:${port}/health`);
-    const body = await response.json();
+    const response = await sendHttp({ port, method: 'GET', path: '/health' });
+    const body = JSON.parse(response.body) as { status?: string; mode?: string };
 
     expect(response.status).toBe(200);
     expect(body.status).toBe('ok');
