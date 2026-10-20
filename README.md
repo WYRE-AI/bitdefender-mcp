@@ -32,14 +32,50 @@ Rate limit: **10 requests/second per API key**; GravityZone returns `429` above 
 
 ## Configuration
 
-| Env var | Description |
-|---|---|
-| `BITDEFENDER_API_KEY` | API key generated in Control Center, with the Network/Policies/Reports/Incidents areas selected. |
-| `BITDEFENDER_ACCESS_URL` | The account's Control Center Access URL (e.g. `https://cloud.gravityzone.bitdefender.com`). |
-| `MCP_TRANSPORT` | `stdio` (default) or `http`. |
-| `AUTH_MODE` | `env` (default, reads the two vars above) or `gateway` (credentials arrive per-request via the `X-Bitdefender-Api-Key` / `X-Bitdefender-Access-Url` headers, injected by the Conduit gateway). |
-| `CONDUIT_S2S_SECRET` | When set, the HTTP transport requires a valid `X-Gateway-S2S` header (Conduit sidecar auth) on every `/mcp` request. |
-| `LOG_LEVEL` | `debug` \| `info` (default) \| `warn` \| `error`. |
+Copy [`.env.example`](.env.example) and set the variables below.
+
+| Env var | Required | Description |
+|---|---|---|
+| `BITDEFENDER_API_KEY` | For stdio and `AUTH_MODE=env` | API key generated in Control Center, with the Network/Policies/Reports/Incidents areas selected. |
+| `BITDEFENDER_ACCESS_URL` | For stdio and `AUTH_MODE=env` | The account's Control Center Access URL (e.g. `https://cloud.gravityzone.bitdefender.com`). |
+| `MCP_TRANSPORT` | No | `stdio` (default) or `http`. |
+| `AUTH_MODE` | No | `env` (default, reads the two vars above) or `gateway` (Docker image and Compose default). Gateway mode requires `X-Bitdefender-Api-Key` and `X-Bitdefender-Access-Url` on each `/mcp` request and never falls back to `BITDEFENDER_*`. |
+| `CONDUIT_S2S_SECRET` | Yes for HTTP | Service-to-service secret. The HTTP server logs an error and exits non-zero when this is empty or a known placeholder (`changeme`, `replace-with-a-real-secret`, and similar copied examples). Compose will not start without it. Never commit a real value. Generate one with `openssl rand -hex 32`. |
+| `MCP_ALLOW_INSECURE_DEV` | No | Set to exactly `1` only for local development to start HTTP without `CONDUIT_S2S_SECRET`. The process logs a warning, does not enforce `X-Gateway-S2S`, and binds `127.0.0.1` only. A non-loopback `MCP_HTTP_HOST` is ignored in that mode. A known placeholder secret is still rejected. |
+| `MCP_HTTP_HOST` | No | Bind address when `MCP_TRANSPORT=http` and `CONDUIT_S2S_SECRET` is set. Defaults to `127.0.0.1`. The container image sets `0.0.0.0`. Without a secret, the listener is `127.0.0.1`. |
+| `MCP_HTTP_PORT` | No | HTTP port. Defaults to `8080`. |
+| `LOG_LEVEL` | No | `debug` \| `info` (default) \| `warn` \| `error`. |
+
+`/health` stays unauthenticated and does not read credentials. The stdio transport does not use `CONDUIT_S2S_SECRET`.
+
+### HTTP authentication
+
+With `MCP_TRANSPORT=http` and `CONDUIT_S2S_SECRET` set, every `/mcp` request must include `X-Gateway-S2S`. A missing or invalid header returns 401 before vendor credentials are read.
+
+The header is an HMAC the gateway signs with this container's `CONDUIT_S2S_SECRET`:
+
+```text
+X-Gateway-S2S: t=<unix seconds>,v1=<lowercase hex HMAC-SHA256>
+```
+
+The MAC is HMAC-SHA256 over the ASCII string `t=<unix seconds>` (the same `t=` prefix that begins the header), keyed with `CONDUIT_S2S_SECRET`. Timestamps more than 300 seconds from the server clock are rejected. The secret is never written to logs.
+
+In `AUTH_MODE=gateway`, `/mcp` also requires `X-Bitdefender-Api-Key` and `X-Bitdefender-Access-Url`. Those headers are the only credential source for that request. A request missing either one returns 401 and does not fall back to `BITDEFENDER_API_KEY` / `BITDEFENDER_ACCESS_URL`.
+
+```typescript
+// Gateway injects credentials and the X-Gateway-S2S proof
+const response = await fetch('http://127.0.0.1:8080/mcp', {
+  method: 'POST',
+  headers: {
+    'content-type': 'application/json',
+    accept: 'application/json, text/event-stream',
+    'x-gateway-s2s': 't=<unix seconds>,v1=<hex hmac-sha256>',
+    'x-bitdefender-api-key': '<api key>',
+    'x-bitdefender-access-url': 'https://cloud.gravityzone.bitdefender.com',
+  },
+  body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+});
+```
 
 ## Tools
 
@@ -101,7 +137,36 @@ npm run lint   # tsc --noEmit
 
 ## Docker
 
+The image listens on `0.0.0.0` inside the container (`MCP_HTTP_HOST`) and defaults to `AUTH_MODE=gateway`. Publish the port on loopback and pass the S2S secret. In gateway mode, Bitdefender credentials arrive on each request as headers; they are not read from the environment.
+
 ```bash
 docker build -t bitdefender-mcp .
-docker run -p 8080:8080 -e BITDEFENDER_API_KEY=... -e BITDEFENDER_ACCESS_URL=... bitdefender-mcp
+docker run \
+  -e CONDUIT_S2S_SECRET="$CONDUIT_S2S_SECRET" \
+  -p 127.0.0.1:8080:8080 \
+  bitdefender-mcp
+```
+
+Compose refuses to start when `CONDUIT_S2S_SECRET` is unset, defaults `AUTH_MODE` to `gateway`, publishes `127.0.0.1:8080:8080`, and does not set `BITDEFENDER_API_KEY` or `BITDEFENDER_ACCESS_URL`:
+
+```bash
+CONDUIT_S2S_SECRET="$CONDUIT_S2S_SECRET" docker compose up
+```
+
+Single-tenant HTTP (`AUTH_MODE=env`) still requires the S2S secret, then uses `BITDEFENDER_API_KEY` and `BITDEFENDER_ACCESS_URL`:
+
+```bash
+docker run \
+  -e CONDUIT_S2S_SECRET="$CONDUIT_S2S_SECRET" \
+  -e AUTH_MODE=env \
+  -e BITDEFENDER_API_KEY=your-api-key \
+  -e BITDEFENDER_ACCESS_URL=https://cloud.gravityzone.bitdefender.com \
+  -p 127.0.0.1:8080:8080 \
+  bitdefender-mcp
+```
+
+Local HTTP without a secret is development-only. It binds `127.0.0.1` only and logs a warning:
+
+```bash
+MCP_ALLOW_INSECURE_DEV=1 npm run start:http
 ```
