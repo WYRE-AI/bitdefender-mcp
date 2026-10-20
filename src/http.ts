@@ -110,10 +110,11 @@ function resolveListenHost(s2sSecret: string): string {
 /**
  * Start the Bitdefender MCP Streamable HTTP server.
  *
- * Fails closed: a missing, blank, or placeholder CONDUIT_S2S_SECRET logs an
- * error and calls process.exit(1) before anything listens, unless
- * MCP_ALLOW_INSECURE_DEV=1 is set, which skips X-Gateway-S2S and binds
- * 127.0.0.1 only. With a secret, every /mcp request must carry a valid
+ * Fails closed: a missing or blank CONDUIT_S2S_SECRET logs an error and calls
+ * process.exit(1) before anything listens. MCP_ALLOW_INSECURE_DEV=1 bypasses
+ * only a missing or blank secret: it skips X-Gateway-S2S and binds 127.0.0.1
+ * only. A placeholder or otherwise unusable secret always exits, with or
+ * without that flag. With a secret, every /mcp request must carry a valid
  * X-Gateway-S2S header; /health stays unauthenticated.
  *
  * @returns The listening `Server`, once `listen` has succeeded.
@@ -127,7 +128,15 @@ export async function startHttpTransport(): Promise<Server> {
   const isGatewayMode = process.env.AUTH_MODE === 'gateway';
 
   const httpServer = createHttpServer(async (req, res) => {
-    const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+    // Fixed base: a malformed Host header must not throw before auth.
+    let url: URL;
+    try {
+      url = new URL(req.url || '/', 'http://localhost');
+    } catch {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Bad request' }));
+      return;
+    }
 
     // /health is container LIVENESS, not credential-readiness. In gateway
     // mode, credentials arrive per-request via X-Bitdefender-Api-Key /
