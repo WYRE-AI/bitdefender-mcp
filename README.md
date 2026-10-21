@@ -38,19 +38,8 @@ Rate limit: **10 requests/second per API key**; GravityZone returns `429` above 
 | `BITDEFENDER_ACCESS_URL` | The account's Control Center Access URL (e.g. `https://cloud.gravityzone.bitdefender.com`). |
 | `MCP_TRANSPORT` | `stdio` (default) or `http`. |
 | `AUTH_MODE` | `env` (default, reads the two vars above) or `gateway` (credentials arrive per-request via the `X-Bitdefender-Api-Key` / `X-Bitdefender-Access-Url` headers, injected by the Conduit gateway). |
-| `CONDUIT_S2S_SECRET` | **Required for the HTTP transport.** Every `/mcp` request must carry a valid `X-Gateway-S2S` header (Conduit sidecar auth); `/health` stays unauthenticated. Generate with `openssl rand -hex 32`. Not used by stdio. |
-| `MCP_ALLOW_INSECURE_DEV` | Set to `1` for local development only: lets the HTTP transport start without `CONDUIT_S2S_SECRET`, skips the S2S check, and is restricted to loopback (startup is refused if `MCP_HTTP_HOST` is non-loopback). Logs a `SECURITY WARNING`. Never bypasses a placeholder secret. |
+| `CONDUIT_S2S_SECRET` | When set, the HTTP transport requires a valid `X-Gateway-S2S` header (Conduit sidecar auth) on every `/mcp` request. |
 | `LOG_LEVEL` | `debug` \| `info` (default) \| `warn` \| `error`. |
-
-### HTTP transport authentication (fail closed)
-
-With `MCP_TRANSPORT=http`, the server **refuses to start** unless `CONDUIT_S2S_SECRET` is set to a real value (trimmed; known placeholders such as `changeme` or `replace-with-a-real-secret` are also refused). `startHttpServer` rejects and the CLI logs the error and exits 1. This matches the fleet fail-closed S2S pattern (CWE-306; conduit#2194, WYREAI-454). The secret is never logged.
-
-```sh
-export CONDUIT_S2S_SECRET="$(openssl rand -hex 32)"   # same value the Conduit gateway signs with
-```
-
-For local development only, `MCP_ALLOW_INSECURE_DEV=1` permits starting with no secret. In that mode `/mcp` is not S2S-gated, the server binds `127.0.0.1` only, and startup is refused if `MCP_HTTP_HOST` is set to a non-loopback address.
 
 ### Request limits
 
