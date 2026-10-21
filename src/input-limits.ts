@@ -17,6 +17,10 @@ export const MAX_TOOL_INPUT_ELEMENTS = 10_000;
  * Count every array element and every own object key at every depth.
  * Iterative (explicit stack) so deep nesting cannot overflow the call stack,
  * and returns as soon as the running count exceeds `max`.
+ *
+ * @param value - The value to walk.
+ * @param max - Early-exit threshold.
+ * @returns The element count, or a value above `max` once exceeded.
  */
 export function countToolInputElements(value: unknown, max: number): number {
   let count = 0;
@@ -38,16 +42,30 @@ export function countToolInputElements(value: unknown, max: number): number {
   return count;
 }
 
+/**
+ * Whether the tool input holds more than `max` elements (array items plus object keys, at any depth).
+ *
+ * @param args - The caller-supplied tool arguments.
+ * @param max - Element limit; defaults to MAX_TOOL_INPUT_ELEMENTS.
+ * @returns True when the input exceeds the limit.
+ */
 export function toolInputTooLarge(args: unknown, max = MAX_TOOL_INPUT_ELEMENTS): boolean {
   return countToolInputElements(args, max) > max;
 }
 
-export function toolInputTooLargeResult(toolName: string, max = MAX_TOOL_INPUT_ELEMENTS) {
+/**
+ * Builds the MCP error result for oversized tool input. The message is fixed
+ * and never echoes caller-controlled values such as the tool name (CWE-209).
+ *
+ * @param max - Element limit reported in the message; defaults to MAX_TOOL_INPUT_ELEMENTS.
+ * @returns A tool result with `isError: true`.
+ */
+export function toolInputTooLargeResult(max = MAX_TOOL_INPUT_ELEMENTS) {
   return {
     content: [
       {
         type: 'text' as const,
-        text: `Invalid arguments for tool ${toolName}: arguments contain more than the maximum of ${max} elements`,
+        text: `Tool input exceeds the maximum of ${max} elements`,
       },
     ],
     isError: true,

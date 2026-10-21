@@ -49,10 +49,8 @@ describe('countToolInputElements', () => {
   });
 
   it('builds the McpServer-compatible error result', () => {
-    expect(toolInputTooLargeResult('t')).toEqual({
-      content: [
-        { type: 'text', text: 'Invalid arguments for tool t: arguments contain more than the maximum of 10000 elements' },
-      ],
+    expect(toolInputTooLargeResult()).toEqual({
+      content: [{ type: 'text', text: 'Tool input exceeds the maximum of 10000 elements' }],
       isError: true,
     });
   });
@@ -172,6 +170,7 @@ describe('HTTP request limits', () => {
     const result = JSON.parse(res.body).result;
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain('maximum of 10000 elements');
+    expect(result.content[0].text).not.toContain('bitdefender_list_endpoints');
     expect(dispatch).not.toHaveBeenCalled();
   });
 });

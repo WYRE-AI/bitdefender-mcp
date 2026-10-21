@@ -6,6 +6,12 @@ import { logger } from './utils/logger.js';
 import { MAX_REQUEST_BODY_BYTES } from './input-limits.js';
 import { verifyS2sHeader, S2S_HEADER } from './s2s-verify.js';
 
+/**
+ * Binds the HTTP listener to MCP_HTTP_HOST:MCP_HTTP_PORT.
+ *
+ * @returns Resolves with the running HTTP server once it is listening; rejects
+ * if the listener emits a startup error.
+ */
 export async function startHttpServer(): Promise<HttpServer> {
   const S2S_SECRET = process.env.CONDUIT_S2S_SECRET || '';
   const port = parseInt(process.env.MCP_HTTP_PORT || '8080', 10);
