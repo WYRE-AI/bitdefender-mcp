@@ -50,7 +50,7 @@ describe('countToolInputElements', () => {
 
   it('builds the McpServer-compatible error result', () => {
     expect(toolInputTooLargeResult()).toEqual({
-      content: [{ type: 'text', text: 'Tool input exceeds the maximum of 10000 elements' }],
+      content: [{ type: 'text', text: 'Tool input has more than 10000 values. Send fewer or shorter values.' }],
       isError: true,
     });
   });
