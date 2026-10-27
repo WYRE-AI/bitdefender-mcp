@@ -169,7 +169,7 @@ describe('HTTP request limits', () => {
     expect(res.status).toBe(200);
     const result = JSON.parse(res.body).result;
     expect(result.isError).toBe(true);
-    expect(result.content[0].text).toContain('maximum of 10000 elements');
+    expect(result.content[0].text).toContain('more than 10000 values. Send fewer or shorter values.');
     expect(result.content[0].text).not.toContain('bitdefender_list_endpoints');
     expect(dispatch).not.toHaveBeenCalled();
   });
