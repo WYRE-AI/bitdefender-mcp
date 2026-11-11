@@ -8,7 +8,7 @@ MCP server for [Bitdefender GravityZone](https://www.bitdefender.com/business/)'
 
 GravityZone authenticates with **HTTP Basic Authentication** (RFC 2617): the API key is sent as the **username**, with an **empty password** - `Authorization: Basic base64(apiKey + ":")`. This is also a new shape for this catalog - every other static-key connector here (Cork, CyberQP, Slide, UniFi) sends a custom `X-Vendor-Api-Key` header that the sidecar turns into a Bearer token; GravityZone has no bearer-token concept at all.
 
-API keys are generated in Control Center under **My Account -> API keys**, and each key is scoped, **at generation time**, to a checklist of API *areas* (Network, Policies, Reports, Incidents, Companies, Licensing, Accounts, Packages, Integrations, Push, Quarantine). This connector's key needs the **Network**, **Policies**, **Reports**, and **Incidents** areas selected - the other seven are never called and do not need to be enabled.
+API keys are generated in Control Center under **My Account -> API keys**, and each key is scoped, **at generation time**, to a checklist of API *areas* (Network, Policies, Reports, Incidents, Companies, Licensing, Accounts, Packages, Integrations, Push, Quarantine). This connector's key needs the **Network**, **Policies**, **Reports**, **Incidents**, and **Quarantine** areas selected - the other six are never called and do not need to be enabled. If the current key was generated without Quarantine, the quarantine tool returns HTTP 403 until a key with it is in place. `bitdefender_list_incidents` / `bitdefender_get_incident` also need a GravityZone license that includes incidents (EDR/XDR) - without one they return a JSON-RPC error.
 
 This connector also needs the account's **Control Center Access URL** (shown on that same My Account page, under **Control Center API**) - GravityZone Cloud, its EU region, and any self-hosted/on-premise Control Center each have a different API host, so unlike most vendors in this catalog there is no single fixed base URL to hardcode.
 
@@ -16,7 +16,7 @@ In gateway mode, both arrive per-request via the `X-Bitdefender-Api-Key` and `X-
 
 ### JSON-RPC shape
 
-GravityZone exposes several **separate** JSON-RPC 2.0 endpoints, one per product area, at `<accessUrl>/v1.0/jsonrpc/<area>` (e.g. `/v1.0/jsonrpc/network`, `/v1.0/jsonrpc/policies`). Every call to a given area - whatever it does - is an HTTP `POST` to that same URL with an identical envelope:
+GravityZone exposes several **separate** JSON-RPC 2.0 endpoints, one per product area, at `<accessUrl>/<version>/jsonrpc/<area>` (e.g. `/v1.0/jsonrpc/network`, `/v1.0/jsonrpc/policies`). Most methods are under `v1.0`; the incident-retrieval methods are only under `v1.2` (`/v1.2/jsonrpc/incidents`), and quarantine has a service suffix (`/v1.0/jsonrpc/quarantine/computers`). Every call to a given area - whatever it does - is an HTTP `POST` to that same URL with an identical envelope:
 
 ```json
 { "id": "<uuid>", "jsonrpc": "2.0", "method": "getEndpointsList", "params": { "parentId": "..." } }
@@ -63,6 +63,11 @@ These limits address CVE-2026-111768 / GHSA-46jr-4wx8-v453 (memory exhaustion du
 
 ### Incidents
 - `bitdefender_list_blocklist_items` - list file hashes present in the account's Blocklist.
+- `bitdefender_list_incidents` - list EDR/XDR incidents (status, priority, main action, timestamps), filterable by endpoint, status, priority, type and date. Calls `getIncidentsList` on **Incidents API v1.2** (`<accessUrl>/v1.2/jsonrpc/incidents`); needs a license that includes incidents.
+- `bitdefender_get_incident` - full detail for one incident (severity, attack types, affected computer, nodes, alerts, MITRE tags). Calls `getIncident` on Incidents API v1.2.
+
+### Quarantine
+- `bitdefender_list_quarantine_items` - files quarantined on computers and VMs (threat name, path, SHA256, endpoint, date), for one endpoint or the whole network. Calls `getQuarantineItemsList` on `<accessUrl>/v1.0/jsonrpc/quarantine/computers`. The Exchange quarantine service is not called.
 
 ### Reports
 - `bitdefender_list_reports` - list scheduled/instant reports configured on the account.
@@ -70,7 +75,7 @@ These limits address CVE-2026-111768 / GHSA-46jr-4wx8-v453 (memory exhaustion du
 
 ## Scope
 
-**This is a deliberately narrow, read-only v1 surface: exactly 10 of GravityZone's `getXxx`/`listXxx` methods across the Network, Policies, Incidents, and Reports APIs.** Every tool is classified `isAdmin: true` in the Conduit gateway - GravityZone is an endpoint-protection product, so every read this connector exposes (endpoint IP/MAC/hostname inventory, security policy settings, malware-hash blocklist entries, security posture reports) is security/PII-adjacent by construction. No mutating (`create`/`update`/`delete`/`move`/`set`/`add`/`remove`) method is implemented, by design, not by oversight:
+**This is a deliberately narrow, read-only surface: exactly 13 of GravityZone's `getXxx`/`listXxx` methods across the Network, Policies, Incidents, Quarantine, and Reports APIs.** Every tool is classified `isAdmin: true` in the Conduit gateway - GravityZone is an endpoint-protection product, so every read this connector exposes (endpoint IP/MAC/hostname inventory, security policy settings, malware-hash blocklist entries, security posture reports) is security/PII-adjacent by construction. No mutating (`create`/`update`/`delete`/`move`/`set`/`add`/`remove`) method is implemented, by design, not by oversight:
 
 **Hard-excluded (Network API) - never implemented:**
 - `createCustomGroup`, `deleteCustomGroup`, `moveCustomGroup` - group provisioning/mutation.
@@ -81,12 +86,17 @@ These limits address CVE-2026-111768 / GHSA-46jr-4wx8-v453 (memory exhaustion du
 **Hard-excluded (Incidents API) - never implemented:**
 - `addToBlocklist`, `removeFromBlocklist` - Blocklist mutation. `bitdefender_list_blocklist_items` (read) stays; these do not.
 - `createIsolateEndpointTask`, `createRestoreEndpointFromIsolationTask` - genuine remote-response actions that isolate/restore a real managed endpoint from the network.
+- `changeIncidentStatus`, `changeIncidentPriority`, `assignIncident`, `updateIncidentNote` - incident triage mutation. `bitdefender_list_incidents` / `bitdefender_get_incident` (read) stay; these do not.
+- `createResponseAction`, `startYaraScan`, `createCustomRule`, `updateCustomRule`, `deleteCustomRule` - response actions and detection-rule changes.
+
+**Hard-excluded (Quarantine API) - never implemented:**
+- `createRemoveQuarantineItemTask`, `createRestoreQuarantineItemTask` (and their Exchange equivalents) - delete or release a quarantined file on a real endpoint. `bitdefender_list_quarantine_items` (read) stays; these do not.
 
 **Hard-excluded (Reports API) - never implemented:**
 - `createReport` - creates a new scheduled/instant report definition.
 - `deleteReport` - deletes a report definition.
 
-**Out of scope entirely (not requested, not implemented):** the Companies, Licensing, Accounts, Packages, Integrations, Push, and Quarantine APIs. Quarantine in particular (`getQuarantineItemsList` and its `createRemove/Restore*QuarantineItemTask` write methods) was in Bitdefender's own catalog of API areas but outside this connector's requested scope (endpoint/network inventory, policies, incidents, reports); it can be added as a deliberate follow-up if there's demand, not by default.
+**Out of scope entirely (not requested, not implemented):** the Companies, Licensing, Accounts, Packages, Integrations, and Push APIs. Push (`setPushEventSettings`) would stream events to a receiver, but configuring it is itself a write, so detections are read here by pulling incidents and quarantine instead.
 
 They can be added as a follow-up if there's demand, after a deliberate scope decision - not by default.
 
@@ -94,7 +104,7 @@ They can be added as a follow-up if there's demand, after a deliberate scope dec
 
 **Two-tier confidence split**, per this catalog's convention for a claim about what a credential can and cannot reach:
 
-- **STRUCTURALLY VERIFIED** - this connector's own code never calls a mutating JSON-RPC method: confirmed against `client.ts`/`tools/*.ts`, only the 10 documented `getXxx`/`listXxx` methods listed under [Tools](#tools) are ever sent, no passthrough/arbitrary-method call exists anywhere in `src/`. This connector is read-only **by construction**.
+- **STRUCTURALLY VERIFIED** - this connector's own code never calls a mutating JSON-RPC method: confirmed against `client.ts`/`tools/*.ts`, only the 13 documented `getXxx`/`listXxx` methods listed under [Tools](#tools) are ever sent, no passthrough/arbitrary-method call exists anywhere in `src/`. This connector is read-only **by construction**.
 - **VENDOR-DOCUMENTED, AND THE FINDING RUNS THE OTHER WAY** - GravityZone's own API-key generation UI (Control Center -> My Account -> API keys) only gates access **per API area** (Network/Policies/Reports/Incidents/...), confirmed against Bitdefender's official API Guide (Getting Started section 1.3, "API Keys": *"Each API key allows the application to call methods exposed by one or several APIs. The allowed APIs are selected at the time the API key is generated"*). There is **no documented per-method or read/write permission flag**. A key with the Network area enabled can call `getEndpointsList` (read) **and** `moveEndpoints`/`deleteEndpoint`/`createScanTask` (write) - the same area, the same permission checkbox, no finer-grained scoping exists on Bitdefender's side. **This connector's read-only posture is enforced entirely by its own code, not by any narrower credential scope GravityZone itself offers** - the same posture this catalog's other security-product connectors (Cork, CyberQP, Cisco Duo) already document for their own admin-tier classification, stated once here for the credential-scope question specifically.
 
 ## Development

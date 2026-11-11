@@ -9,16 +9,20 @@ import {
 } from './types.js';
 import type {
   BitdefenderApiArea,
+  BitdefenderApiVersion,
   BitdefenderCredentials,
   BitdefenderPagedResponse,
   GetBlocklistItemsParams,
   GetCustomGroupsListParams,
   GetDownloadLinksParams,
   GetEndpointsListParams,
+  GetIncidentParams,
+  GetIncidentsListParams,
   GetManagedEndpointDetailsParams,
   GetNetworkInventoryItemsParams,
   GetPoliciesListParams,
   GetPolicyDetailsParams,
+  GetQuarantineItemsListParams,
   GetReportsListParams,
   GetScanTasksListParams,
 } from './types.js';
@@ -110,8 +114,9 @@ export async function jsonRpcCall<T>(
   area: BitdefenderApiArea,
   method: string,
   params: Record<string, unknown> = {},
+  version: BitdefenderApiVersion = 'v1.0',
 ): Promise<T> {
-  const url = `${creds.accessUrl.replace(/\/+$/, '')}/v1.0/jsonrpc/${area}`;
+  const url = `${creds.accessUrl.replace(/\/+$/, '')}/${version}/jsonrpc/${area}`;
   const requestId = randomUUID();
 
   const res = await fetch(url, {
@@ -232,6 +237,42 @@ export async function getBlocklistItems(
   params: GetBlocklistItemsParams = {},
 ): Promise<BitdefenderPagedResponse> {
   return jsonRpcCall(creds, 'incidents', 'getBlocklistItems', { ...params });
+}
+
+/**
+ * getIncidentsList — EDR/XDR incidents (endpoint and organization incidents)
+ * matching the filters. Only documented under Incidents API v1.2, and needs a
+ * license that includes incidents.
+ */
+export async function getIncidentsList(
+  creds: BitdefenderCredentials,
+  params: GetIncidentsListParams = {},
+): Promise<BitdefenderPagedResponse> {
+  return jsonRpcCall(creds, 'incidents', 'getIncidentsList', { ...params }, 'v1.2');
+}
+
+/** getIncident — full detail for one incident: severity, attack types, nodes, alerts, MITRE tags. Incidents API v1.2. */
+export async function getIncident(
+  creds: BitdefenderCredentials,
+  { id }: GetIncidentParams,
+): Promise<Record<string, unknown>> {
+  return jsonRpcCall(creds, 'incidents', 'getIncident', { id }, 'v1.2');
+}
+
+// ---------------------------------------------------------------------
+// Quarantine (computers service only)
+// ---------------------------------------------------------------------
+
+/**
+ * getQuarantineItemsList — files quarantined on computers and VMs (threat
+ * name, file path/SHA256, endpoint, date). Omitting endpointId returns the
+ * whole network for the key's company.
+ */
+export async function getQuarantineItemsList(
+  creds: BitdefenderCredentials,
+  params: GetQuarantineItemsListParams = {},
+): Promise<BitdefenderPagedResponse> {
+  return jsonRpcCall(creds, 'quarantine/computers', 'getQuarantineItemsList', { ...params });
 }
 
 // ---------------------------------------------------------------------

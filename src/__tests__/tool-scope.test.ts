@@ -23,15 +23,19 @@ describe('ALL_TOOLS scope boundary', () => {
     'bitdefender_get_policy',
     // Incidents
     'bitdefender_list_blocklist_items',
+    'bitdefender_list_incidents',
+    'bitdefender_get_incident',
+    // Quarantine (computers service)
+    'bitdefender_list_quarantine_items',
     // Reports
     'bitdefender_list_reports',
     'bitdefender_get_report_download_links',
   ].sort();
 
-  it("exposes exactly this connector's 10 read-only tools - nothing more, nothing less", () => {
+  it("exposes exactly this connector's 13 read-only tools - nothing more, nothing less", () => {
     const names = ALL_TOOLS.map((t) => t.name).sort();
     expect(names).toEqual(EXPECTED_TOOL_NAMES);
-    expect(names).toHaveLength(10);
+    expect(names).toHaveLength(13);
   });
 
   it('never exposes a tool backed by a mutating (create/update/delete/move/set/add/remove) method', () => {
