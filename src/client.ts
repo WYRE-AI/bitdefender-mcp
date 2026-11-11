@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
+import { maxUpstreamBytes, readBoundedText } from './upstream.js';
 import { logger } from './utils/logger.js';
 import {
   BitdefenderApiError,
@@ -81,6 +82,14 @@ export function getCredentials(): BitdefenderCredentials | null {
 // buildHeaders).
 // ---------------------------------------------------------------------
 
+const API_AREA_LABELS: Record<BitdefenderApiArea, string> = {
+  network: 'Network',
+  policies: 'Policies',
+  reports: 'Reports',
+  incidents: 'Incidents',
+  'quarantine/computers': 'Quarantine',
+};
+
 function buildBasicAuthHeader(apiKey: string): string {
   return `Basic ${Buffer.from(`${apiKey}:`).toString('base64')}`;
 }
@@ -138,9 +147,10 @@ export async function jsonRpcCall<T>(
     throw new BitdefenderAuthError(`GravityZone rejected the API key (HTTP 401): ${area}/${method}`);
   }
   if (res.status === 403) {
+    const label = API_AREA_LABELS[area];
     throw new BitdefenderForbiddenError(
-      `GravityZone denied access to the "${area}" API for this key (HTTP 403). ` +
-        `The API key must have the ${area} API selected at generation time — see README's Authentication section.`,
+      `GravityZone denied access to the "${label}" API for this key (HTTP 403). ` +
+        `The API key must have the ${label} API selected at generation time — see README's Authentication section.`,
     );
   }
   if (res.status === 429) {
@@ -150,7 +160,13 @@ export async function jsonRpcCall<T>(
     throw new BitdefenderApiError(`GravityZone ${area}/${method} failed: HTTP ${res.status}`, res.status);
   }
 
-  const body = (await res.json()) as JsonRpcResponse<T>;
+  const text = await readBoundedText(res, maxUpstreamBytes(), `${area}/${method}`);
+  let body: JsonRpcResponse<T>;
+  try {
+    body = JSON.parse(text) as JsonRpcResponse<T>;
+  } catch {
+    throw new BitdefenderApiError(`GravityZone ${area}/${method} returned invalid JSON.`, res.status);
+  }
   if (isJsonRpcFailure(body)) {
     const detail = body.error.data?.details;
     throw new BitdefenderApiError(

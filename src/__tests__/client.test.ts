@@ -24,6 +24,7 @@ describe('jsonRpcCall', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   it('POSTs a well-formed JSON-RPC 2.0 envelope to the area-specific URL', async () => {
@@ -119,7 +120,63 @@ describe('jsonRpcCall', () => {
 
     await expect(jsonRpcCall(creds, 'incidents', 'getBlocklistItems', {})).rejects.toThrow(BitdefenderForbiddenError);
     fetchMock.mockResolvedValueOnce(httpErrorResponse(403));
-    await expect(jsonRpcCall(creds, 'incidents', 'getBlocklistItems', {})).rejects.toThrow(/incidents/);
+    await expect(jsonRpcCall(creds, 'incidents', 'getBlocklistItems', {})).rejects.toThrow(/Incidents/);
+  });
+
+  it('uses the Control Center Quarantine label on HTTP 403', async () => {
+    fetchMock.mockResolvedValueOnce(httpErrorResponse(403));
+    const error = await jsonRpcCall(creds, 'quarantine/computers', 'getQuarantineItemsList', {}).catch((err: unknown) => err);
+    expect(error).toBeInstanceOf(BitdefenderForbiddenError);
+    if (!(error instanceof BitdefenderForbiddenError)) throw error;
+    expect(error.message).toContain('"Quarantine" API');
+    expect(error.message).toContain('the Quarantine API selected');
+    expect(error.message).not.toContain('quarantine/computers');
+  });
+
+  it('rejects an oversized Content-Length before reading or parsing the body', async () => {
+    vi.stubEnv('BITDEFENDER_MAX_UPSTREAM_BYTES', '1000');
+    const cancel = vi.fn();
+    const response = new Response(new ReadableStream<Uint8Array>({ cancel }), {
+      headers: { 'Content-Length': '1001' },
+    });
+    const getReader = vi.spyOn(response.body!, 'getReader');
+    fetchMock.mockResolvedValueOnce(response);
+
+    const error = await jsonRpcCall(creds, 'network', 'getEndpointsList', {}).catch((err: unknown) => err);
+    expect(error).toBeInstanceOf(BitdefenderApiError);
+    if (!(error instanceof BitdefenderApiError)) throw error;
+    expect(error.message).toContain('network/getEndpointsList exceeded 1000 bytes');
+    expect(getReader).not.toHaveBeenCalled();
+    expect(cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('cancels a streamed response early when it exceeds the cap without Content-Length', async () => {
+    vi.stubEnv('BITDEFENDER_MAX_UPSTREAM_BYTES', '1000');
+    let pulled = 0;
+    const cancel = vi.fn();
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulled++;
+        if (pulled > 1000) controller.close();
+        else controller.enqueue(new Uint8Array(512).fill(120));
+      },
+      cancel,
+    });
+    const response = new Response(stream);
+    expect(response.headers.has('content-length')).toBe(false);
+    fetchMock.mockResolvedValueOnce(response);
+
+    const error = await jsonRpcCall(creds, 'network', 'getEndpointsList', {}).catch((err: unknown) => err);
+    expect(error).toBeInstanceOf(BitdefenderApiError);
+    if (!(error instanceof BitdefenderApiError)) throw error;
+    expect(error.message).toContain('exceeded 1000 bytes');
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(pulled).toBeLessThan(10);
+  });
+
+  it('wraps malformed JSON in BitdefenderApiError', async () => {
+    fetchMock.mockResolvedValueOnce(new Response('not JSON'));
+    await expect(jsonRpcCall(creds, 'network', 'getEndpointsList', {})).rejects.toThrow(BitdefenderApiError);
   });
 
   it('throws BitdefenderRateLimitError on HTTP 429 (more than 10 req/s)', async () => {

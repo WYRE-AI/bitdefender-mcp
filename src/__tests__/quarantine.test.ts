@@ -29,9 +29,9 @@ describe('handleQuarantineTool', () => {
             quarantinedOn: '2026-11-05T09:00:00',
             actionStatus: 0,
             endpointId: 'ep-1',
-            endpointName: 'CALEB',
+            endpointName: 'ENDPOINT-01',
             threatName: 'Trojan.Generic.123',
-            details: { filePath: 'c:\\users\\caleb\\downloads\\invoice.exe', fileSha256: 'abc' },
+            details: { filePath: 'c:\\users\\jsmith\\downloads\\invoice.exe', fileSha256: 'abc' },
           },
         ],
       })

@@ -80,12 +80,24 @@ export function isIncidentTool(name: string): boolean {
   return TOOL_NAMES.has(name);
 }
 
-/** Returns an error message if a date pair is half-sent, else null. */
+/** Validates that date pairs are complete, parseable, and strictly ordered. */
 function checkDatePairs(filters: IncidentFilters | undefined): string | null {
   if (!filters) return null;
   for (const [start, end] of DATE_PAIRS) {
-    if (Boolean(filters[start]) !== Boolean(filters[end])) {
+    const startValue = filters[start];
+    const endValue = filters[end];
+    if ((startValue !== undefined) !== (endValue !== undefined)) {
       return `filters.${start} and filters.${end} must be sent together.`;
+    }
+    if (startValue !== undefined && endValue !== undefined) {
+      const startTime = typeof startValue === 'string' ? Date.parse(startValue) : NaN;
+      const endTime = typeof endValue === 'string' ? Date.parse(endValue) : NaN;
+      if (!Number.isFinite(startTime) || !Number.isFinite(endTime)) {
+        return `filters.${start} and filters.${end} must be valid ISO 8601 dates.`;
+      }
+      if (startTime >= endTime) {
+        return `filters.${start} must be earlier than filters.${end}.`;
+      }
     }
   }
   return null;
