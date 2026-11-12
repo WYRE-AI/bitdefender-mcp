@@ -99,9 +99,12 @@ describe('handleIncidentTool', () => {
 
     it.each([
       ['not-a-date', '2026-11-11T00:00:00Z'],
+      ['Sat, 01 Jan 2000 08:00:00 UT', '2026-11-11T00:00:00Z'],
+      ['2026-02-31', '2026-11-11T00:00:00Z'],
+      ['2026-11-01T00:00:00Z', '2026-11-31T00:00:00Z'],
       ['2026-11-01T00:00:00Z', 'not-a-date'],
       ['', ''],
-    ])('rejects unparseable dates %s / %s without fetch', async (startValue, endValue) => {
+    ])('rejects invalid ISO dates %s / %s without fetch', async (startValue, endValue) => {
       const result = await runWithCredentials(creds, () => handleIncidentTool('bitdefender_list_incidents', {
         filters: { [start]: startValue, [end]: endValue },
       }));

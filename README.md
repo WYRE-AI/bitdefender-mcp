@@ -34,7 +34,7 @@ Rate limit: **10 requests/second per API key**; GravityZone returns `429` above 
 
 | Env var | Description |
 |---|---|
-| `BITDEFENDER_API_KEY` | API key generated in Control Center, with the Network/Policies/Reports/Incidents areas selected. |
+| `BITDEFENDER_API_KEY` | API key generated in Control Center, with the Network/Policies/Reports/Incidents/Quarantine areas selected. |
 | `BITDEFENDER_ACCESS_URL` | The account's Control Center Access URL (e.g. `https://cloud.gravityzone.bitdefender.com`). |
 | `MCP_TRANSPORT` | `stdio` (default) or `http`. |
 | `AUTH_MODE` | `env` (default, reads the two vars above) or `gateway` (credentials arrive per-request via the `X-Bitdefender-Api-Key` / `X-Bitdefender-Access-Url` headers, injected by the Conduit gateway). |

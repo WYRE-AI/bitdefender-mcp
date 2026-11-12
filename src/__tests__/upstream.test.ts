@@ -6,7 +6,7 @@ describe('maxUpstreamBytes', () => {
     vi.unstubAllEnvs();
   });
 
-  it.each([undefined, '', '   ', 'garbage', '0', '-1', 'nope', 'Infinity', '9'.repeat(400)])(
+  it.each([undefined, '', '   ', 'garbage', '0', '-1', 'nope', 'Infinity', '1e7', '1.5', '16MiB', '9'.repeat(400)])(
     'uses the default for %s', (value) => {
       vi.stubEnv('BITDEFENDER_MAX_UPSTREAM_BYTES', value);
       expect(maxUpstreamBytes()).toBe(MAX_UPSTREAM_BYTES_DEFAULT);

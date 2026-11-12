@@ -4,7 +4,9 @@ export const MAX_UPSTREAM_BYTES_DEFAULT = 16 * 1024 * 1024;
 export const MAX_UPSTREAM_BYTES_CEILING = 128 * 1024 * 1024;
 
 function positiveInt(raw: string | undefined, fallback: number, max: number): number {
-  const n = Number.parseInt((raw ?? '').trim(), 10);
+  const value = (raw ?? '').trim();
+  if (!/^\d+$/.test(value)) return fallback;
+  const n = Number(value);
   if (!Number.isFinite(n) || n <= 0) return fallback;
   return Math.min(n, max);
 }

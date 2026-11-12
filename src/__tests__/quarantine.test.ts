@@ -14,6 +14,7 @@ describe('handleQuarantineTool', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   it('bitdefender_list_quarantine_items calls getQuarantineItemsList on the quarantine/computers service', async () => {
@@ -54,6 +55,8 @@ describe('handleQuarantineTool', () => {
   });
 
   it('returns a credential error without calling fetch when no credentials are configured', async () => {
+    vi.stubEnv('BITDEFENDER_API_KEY', '');
+    vi.stubEnv('BITDEFENDER_ACCESS_URL', '');
     const result = await handleQuarantineTool('bitdefender_list_quarantine_items', {});
 
     expect(result.isError).toBe(true);
