@@ -6,6 +6,14 @@ Per-version release notes for tagged releases are published on the [GitHub Relea
 
 ## [Unreleased]
 
+### Fixed
+
+- **The HTTP transport no longer exits on a malformed request (WYREAI-741).** The request
+  target was parsed against the client-supplied `Host` header, and a value that does not parse
+  (or a target such as `//`) threw inside the request listener before authentication. The
+  target is now parsed against a fixed base, so `Host` is no longer consulted, and a target
+  that still cannot be parsed gets a `400` JSON response while the server keeps running.
+
 ### Added
 
 - Initial v1 release: 10 read-only tools covering endpoint/network inventory (endpoints, managed-endpoint detail, custom groups, network inventory items, scan tasks), security policies, the account-wide malware-hash Blocklist, and scheduled/instant reports. HTTP Basic authentication (API key as username, empty password) against Bitdefender GravityZone's **JSON-RPC 2.0** API - a new call shape for this catalog (every other Conduit sidecar calls REST). See README's Authentication and Scope sections for the full accounting of excluded mutating methods and the credential-scope finding (a GravityZone API key is scoped per API area, not per method).
